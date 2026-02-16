@@ -13,8 +13,8 @@ const ALL = "__all__";
 
 const props = defineProps({
   q: { type: String, default: "" },
-  category: { type: String, default: "" }, // slug или ""
-  categories: { type: Array, default: () => [] }, // string[] или object[]
+  category: { type: String, default: "" },
+  categories: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:q", "update:category", "reset"]);
@@ -40,6 +40,9 @@ const categoriesUi = computed(() => {
 });
 
 const selectValue = computed(() => props.category || ALL);
+const hasActiveFilters = computed(() =>
+  Boolean(props.q?.trim() || props.category),
+);
 
 function onCategoryChange(val) {
   const v = typeof val === "string" ? val : ALL;
@@ -62,13 +65,13 @@ function onReset() {
       />
       <button
         type="button"
-        class="h-10 px-4 rounded-md border text-sm transition whitespace-nowrap flex items-center justify-center"
+        class="h-9 px-4 rounded-md border text-sm transition whitespace-nowrap flex items-center justify-center"
         :class="
-          q?.trim() || category !== '__all__'
-            ? 'border-black text-gostwhite hover:bg-Black'
-            : 'border-slate-200 text-slate-400 cursor-not-allowed'
+          hasActiveFilters
+            ? 'border-slate-900 text-black hover:bg-slate-900 hover:text-white'
+            : 'border-slate-200 text-slate-400 '
         "
-        :disabled="!(q?.trim() || category !== '__all__')"
+        :disabled="!hasActiveFilters"
         @click="onReset"
       >
         Очистить
