@@ -14,7 +14,7 @@ const ALL = "__all__";
 const props = defineProps({
   q: { type: String, default: "" },
   categoryId: { type: [String, Number], default: "" },
-  categories: { type: Array, default: () => [] }, // [{id,label}]
+  categories: { type: Array, default: () => [] },
 });
 
 const emit = defineEmits(["update:q", "update:categoryId", "reset"]);

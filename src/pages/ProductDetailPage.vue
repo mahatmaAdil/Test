@@ -15,7 +15,6 @@ const activeImage = ref("");
 watch(
   () => store.current,
   (p) => {
-    // Platzi: images: string[], обычно без thumbnail
     activeImage.value = p?.images?.[0] || "";
   },
   { immediate: true },
