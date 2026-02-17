@@ -13,41 +13,34 @@ const ALL = "__all__";
 
 const props = defineProps({
   q: { type: String, default: "" },
-  category: { type: String, default: "" },
-  categories: { type: Array, default: () => [] },
+  categoryId: { type: [String, Number], default: "" },
+  categories: { type: Array, default: () => [] }, // [{id,label}]
 });
 
-const emit = defineEmits(["update:q", "update:category", "reset"]);
+const emit = defineEmits(["update:q", "update:categoryId", "reset"]);
 
 const categoriesUi = computed(() => {
   const raw = props.categories ?? [];
   return raw
-    .map((c) => {
-      if (typeof c === "string") {
-        const slug = c;
-        const label = c
-          .split("-")
-          .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
-          .join(" ");
-        return { slug, label };
-      }
-      const slug = String(c.slug ?? c.value ?? c.id ?? "");
-      const label = String(c.name ?? c.title ?? c.label ?? slug);
-      return { slug, label };
-    })
-    .filter((x) => x.slug)
+    .map((c) => ({ id: Number(c?.id), label: String(c?.label ?? "").trim() }))
+    .filter((c) => Number.isFinite(c.id))
     .sort((a, b) => a.label.localeCompare(b.label));
 });
 
-const selectValue = computed(() => props.category || ALL);
+const selectValue = computed(() => {
+  const cid = Number(props.categoryId);
+  return Number.isFinite(cid) && cid > 0 ? String(cid) : ALL;
+});
+
 const hasActiveFilters = computed(() =>
-  Boolean(props.q?.trim() || props.category),
+  Boolean(props.q?.trim() || Number(props.categoryId) > 0),
 );
 
 function onCategoryChange(val) {
   const v = typeof val === "string" ? val : ALL;
-  emit("update:category", v === ALL ? "" : v);
+  emit("update:categoryId", v === ALL ? "" : v);
 }
+
 function onReset() {
   emit("reset");
 }
@@ -86,8 +79,11 @@ function onReset() {
 
         <SelectContent>
           <SelectItem :value="ALL">Все категории</SelectItem>
-
-          <SelectItem v-for="c in categoriesUi" :key="c.slug" :value="c.slug">
+          <SelectItem
+            v-for="c in categoriesUi"
+            :key="c.id"
+            :value="String(c.id)"
+          >
             {{ c.label }}
           </SelectItem>
         </SelectContent>

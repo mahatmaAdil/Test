@@ -4,39 +4,43 @@ import { ref } from "vue";
 
 export const useProductStore = defineStore("product", () => {
   const loading = ref(false);
-  const categoriesLoading = ref(false);
   const error = ref("");
-  const categoriesError = ref("");
 
   const items = ref([]);
+
+  const categoriesLoading = ref(false);
+  const categoriesError = ref("");
+  // [{ id, label }]
   const categories = ref([]);
-  const total = ref(0);
-  const limit = ref(30);
-  const skip = ref(0);
 
   const productLoading = ref(false);
   const productError = ref("");
   const current = ref(null);
 
-  async function fetchById(id) {
+  function sanitizeText(raw) {
+    return typeof raw === "string" ? raw.trim() : "";
+  }
+
+  async function fetchList({ q = "", categoryId = "" } = {}) {
     try {
-      productLoading.value = true;
-      productError.value = "";
+      loading.value = true;
+      error.value = "";
 
-      const pid = Number(id);
-      const normalizedId = Number.isFinite(pid) ? pid : id;
+      const params = {};
 
-      const { data } = await api.get(
-        `/products/${encodeURIComponent(normalizedId)}`,
-      );
-      current.value = data || null;
-      return current.value;
+      const title = sanitizeText(q);
+      if (title) params.title = title;
+
+      const cid = Number(categoryId);
+      if (Number.isFinite(cid) && cid > 0) params.categoryId = cid;
+
+      const { data } = await api.get("/products", { params });
+      items.value = Array.isArray(data) ? data : [];
     } catch (e) {
-      productError.value = e?.message || "Не удалось загрузить продукт";
-      current.value = null;
-      throw e;
+      error.value = e?.message || "Не удалось загрузить продукты";
+      items.value = [];
     } finally {
-      productLoading.value = false;
+      loading.value = false;
     }
   }
 
@@ -45,8 +49,41 @@ export const useProductStore = defineStore("product", () => {
       categoriesLoading.value = true;
       categoriesError.value = "";
 
-      const { data } = await api.get("/products/category-list");
-      categories.value = Array.isArray(data) ? data : [];
+      const { data } = await api.get("/categories");
+      const raw = Array.isArray(data) ? data : [];
+
+      const BASE_CATEGORY_SLUGS = new Set([
+        "clothes",
+        "electronics",
+        "shoes",
+        "furniture",
+        "others",
+        "miscellaneous",
+      ]);
+
+      const normalized = raw
+        .map((c) => {
+          const id = Number(c?.id);
+          const slug = String(c?.slug ?? "")
+            .trim()
+            .toLowerCase();
+          const label = String(c?.name ?? "").trim();
+
+          if (!Number.isFinite(id) || !slug) return null;
+
+          return { id, slug, label: label || slug };
+        })
+        .filter(Boolean)
+        .filter((c) => BASE_CATEGORY_SLUGS.has(c.slug));
+
+      const uniq = new Map();
+      for (const c of normalized) {
+        if (!uniq.has(c.id)) uniq.set(c.id, c);
+      }
+
+      categories.value = Array.from(uniq.values()).sort((a, b) =>
+        a.label.localeCompare(b.label),
+      );
     } catch (e) {
       categoriesError.value = e?.message || "Не удалось загрузить категории";
       categories.value = [];
@@ -54,124 +91,35 @@ export const useProductStore = defineStore("product", () => {
       categoriesLoading.value = false;
     }
   }
-  function escapeRegExp(s) {
-    return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  }
 
-  function matchTitleByWordPrefix(title, q) {
-    const query = String(q || "")
-      .trim()
-      .toLowerCase();
-    if (!query) return true;
-
-    const t = String(title || "").toLowerCase();
-
-    const re = new RegExp(`\\b${escapeRegExp(query)}`, "i");
-    return re.test(t);
-  }
-
-  async function fetchList({
-    q = "",
-    category = "",
-    page = 1,
-    pageSize = 30,
-  } = {}) {
+  async function fetchById(id) {
     try {
-      loading.value = true;
-      error.value = "";
+      productLoading.value = true;
+      productError.value = "";
 
-      limit.value = Number(pageSize) > 0 ? Number(pageSize) : 30;
-      const normalizedPage = Number(page) > 0 ? Number(page) : 1;
-      const nextSkip = (normalizedPage - 1) * limit.value;
-      skip.value = nextSkip;
-
-      const baseParams = {
-        limit: limit.value,
-        skip: skip.value,
-      };
-
-      let response;
-      const normalizedQ = q?.trim() || "";
-      const normalizedCategory = category?.trim() || "";
-
-      if (normalizedQ && normalizedCategory) {
-        const { data } = await api.get(
-          `/products/category/${encodeURIComponent(normalizedCategory)}`,
-          {
-            params: {
-              limit: 194,
-              skip: 0,
-            },
-          },
-        );
-
-        const categoryProducts = Array.isArray(data?.products)
-          ? data.products
-          : [];
-        const filtered = categoryProducts.filter((product) =>
-          matchTitleByWordPrefix(product?.title, normalizedQ),
-        );
-
-        total.value = filtered.length;
-        items.value = filtered.slice(skip.value, skip.value + limit.value);
-        return;
-      }
-
-      if (normalizedQ) {
-        const { data } = await api.get("/products/search", {
-          params: {
-            q: normalizedQ,
-            limit: 200,
-            skip: 0,
-          },
-        });
-
-        const products = Array.isArray(data?.products) ? data.products : [];
-        const filtered = products.filter((p) =>
-          matchTitleByWordPrefix(p?.title, normalizedQ),
-        );
-
-        total.value = filtered.length;
-        items.value = filtered.slice(skip.value, skip.value + limit.value);
-        return;
-      } else if (normalizedCategory) {
-        response = await api.get(
-          `/products/category/${encodeURIComponent(normalizedCategory)}`,
-          {
-            params: baseParams,
-          },
-        );
-      } else {
-        response = await api.get("/products", {
-          params: baseParams,
-        });
-      }
-
-      const data = response?.data || {};
-      items.value = Array.isArray(data.products) ? data.products : [];
-      total.value = Number(data.total) || 0;
+      const { data } = await api.get(`/products/${id}`);
+      current.value = data ?? null;
     } catch (e) {
-      error.value = e?.message || "Не удалось загрузить продукты";
-      items.value = [];
-      total.value = 0;
+      productError.value = e?.message || "Ошибка загрузки продукта";
+      current.value = null;
     } finally {
-      loading.value = false;
+      productLoading.value = false;
     }
   }
 
   return {
     loading,
-    categoriesLoading,
     error,
-    categoriesError,
     items,
+
+    categoriesLoading,
+    categoriesError,
     categories,
-    total,
-    limit,
-    skip,
+
     current,
     productLoading,
     productError,
+
     fetchList,
     fetchCategories,
     fetchById,

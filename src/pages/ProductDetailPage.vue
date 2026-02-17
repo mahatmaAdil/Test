@@ -15,7 +15,8 @@ const activeImage = ref("");
 watch(
   () => store.current,
   (p) => {
-    activeImage.value = p?.thumbnail || p?.images?.[0] || "";
+    // Platzi: images: string[], обычно без thumbnail
+    activeImage.value = p?.images?.[0] || "";
   },
   { immediate: true },
 );
@@ -24,7 +25,7 @@ watch(
   () => route.params.id,
   async (id) => {
     if (id == null) return;
-    await store.fetchById(id);
+    await store.fetchById(Number(id));
   },
   { immediate: true },
 );
@@ -97,7 +98,13 @@ const router = useRouter();
         <div class="space-y-2">
           <div class="flex items-center gap-2">
             <h1 class="text-2xl font-bold">{{ store.current.title }}</h1>
-            <Badge variant="secondary">{{ store.current.category }}</Badge>
+            <Badge variant="secondary">
+              {{
+                store.current.category?.name ||
+                store.current.category?.slug ||
+                "—"
+              }}
+            </Badge>
           </div>
           <p class="text-slate-600">{{ store.current.description }}</p>
         </div>

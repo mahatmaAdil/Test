@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ProductsFilters from "@/components/ProductsFilters.vue";
 import ProductCard from "@/components/ProductCard.vue";
@@ -11,117 +11,99 @@ const router = useRouter();
 const route = useRoute();
 
 const q = ref("");
-const category = ref("");
+const categoryId = ref("");
 const page = ref(1);
+
 const per_page = 30;
 const debounceDelay = 500;
 
 let searchDebounceId = null;
-
 const isSyncingFromRoute = ref(false);
-
-const totalPages = computed(() => {
-  if (!store.total || !store.limit) return 1;
-  return Math.max(1, Math.ceil(store.total / store.limit));
-});
-
-const hasActiveFilters = computed(() =>
-  Boolean(q.value.trim() || category.value),
-);
-const isCatalogEmpty = computed(
-  () =>
-    !store.loading &&
-    !store.error &&
-    store.total === 0 &&
-    !hasActiveFilters.value,
-);
-const isNoResults = computed(
-  () =>
-    !store.loading &&
-    !store.error &&
-    store.total === 0 &&
-    hasActiveFilters.value,
-);
 
 function normalizePage(raw) {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
 }
-
 function sanitizeText(raw) {
   return typeof raw === "string" ? raw.trim() : "";
 }
+function normalizeCategoryId(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? String(Math.floor(n)) : "";
+}
+
+const hasActiveFilters = computed(() =>
+  Boolean(q.value.trim() || Number(categoryId.value) > 0),
+);
+
+const totalPages = computed(() => {
+  return Math.max(1, Math.ceil(store.items.length / per_page));
+});
+
+const paginatedItems = computed(() => {
+  const p = Math.min(page.value, totalPages.value);
+  const start = (p - 1) * per_page;
+  return store.items.slice(start, start + per_page);
+});
+
+const canPrev = computed(() => page.value > 1);
+const canNext = computed(() => page.value < totalPages.value);
+
+const isCatalogEmpty = computed(
+  () =>
+    !store.loading &&
+    !store.error &&
+    store.items.length === 0 &&
+    !hasActiveFilters.value,
+);
+
+const isNoResults = computed(
+  () =>
+    !store.loading &&
+    !store.error &&
+    store.items.length === 0 &&
+    hasActiveFilters.value,
+);
 
 function applyRouteToLocalState() {
   isSyncingFromRoute.value = true;
   q.value = sanitizeText(route.query.q);
-  category.value = sanitizeText(route.query.category);
+  categoryId.value = normalizeCategoryId(route.query.categoryId);
   page.value = normalizePage(route.query.page);
   isSyncingFromRoute.value = false;
+}
+
+async function updateRoute({
+  q: nextQ = q.value,
+  categoryId: nextCategoryId = categoryId.value,
+  page: nextPage = page.value,
+} = {}) {
+  const normalizedQ = sanitizeText(nextQ);
+  const normalizedCategoryId = normalizeCategoryId(nextCategoryId);
+  const normalizedPage = normalizePage(nextPage);
+
+  const nextQuery = {};
+  if (normalizedQ) nextQuery.q = normalizedQ;
+  if (normalizedCategoryId) nextQuery.categoryId = normalizedCategoryId;
+  if (normalizedPage > 1) nextQuery.page = String(normalizedPage);
+
+  await router.replace({ query: nextQuery });
 }
 
 async function fetchByCurrentState() {
   if (!store.categories.length && !store.categoriesLoading) {
     await store.fetchCategories();
   }
-  await store.fetchList({
-    q: q.value,
-    category: category.value,
-    page: page.value,
-    pageSize: per_page,
-  });
+
+  await store.fetchList({ q: q.value, categoryId: categoryId.value });
 
   if (page.value > totalPages.value) {
-    await updateRoute({
-      page: totalPages.value,
-    });
+    await updateRoute({ page: totalPages.value });
   }
-}
-
-async function updateRoute({
-  q: nextQ = q.value,
-  category: nextCategory = category.value,
-  page: nextPage = page.value,
-} = {}) {
-  const normalizedQ = sanitizeText(nextQ);
-  const normalizedCategory = sanitizeText(nextCategory);
-  const normalizedPage = normalizePage(nextPage);
-
-  const nextQuery = {};
-  if (normalizedQ) nextQuery.q = normalizedQ;
-  if (normalizedCategory) nextQuery.category = normalizedCategory;
-  if (normalizedPage > 1) nextQuery.page = String(normalizedPage);
-
-  const currentQuery = {
-    q: sanitizeText(route.query.q),
-    category: sanitizeText(route.query.category),
-    page:
-      normalizePage(route.query.page) > 1
-        ? String(normalizePage(route.query.page))
-        : "",
-  };
-  const targetQuery = {
-    q: normalizedQ,
-    category: normalizedCategory,
-    page: normalizedPage > 1 ? String(normalizedPage) : "",
-  };
-
-  if (
-    currentQuery.q === targetQuery.q &&
-    currentQuery.category === targetQuery.category &&
-    currentQuery.page === targetQuery.page
-  ) {
-    return;
-  }
-
-  await router.replace({ query: nextQuery });
 }
 
 function queueSearchUpdate() {
-  if (searchDebounceId) {
-    clearTimeout(searchDebounceId);
-  }
-
+  if (searchDebounceId) clearTimeout(searchDebounceId);
   searchDebounceId = setTimeout(() => {
     updateRoute({ q: q.value, page: 1 });
   }, debounceDelay);
@@ -129,8 +111,8 @@ function queueSearchUpdate() {
 
 function resetFilters() {
   q.value = "";
-  category.value = "";
-  updateRoute({ q: "", category: "", page: 1 });
+  categoryId.value = "";
+  updateRoute({ q: "", categoryId: "", page: 1 });
 }
 
 function goToPage(nextPage) {
@@ -138,29 +120,27 @@ function goToPage(nextPage) {
   if (target === page.value) return;
   updateRoute({ page: target });
 }
-
 function prevPage() {
-  if (page.value <= 1) return;
+  if (!canPrev.value) return;
   goToPage(page.value - 1);
 }
-
 function nextPage() {
-  if (page.value >= totalPages.value) return;
+  if (!canNext.value) return;
   goToPage(page.value + 1);
 }
 
 watch(
   () => route.query,
-  () => {
+  async () => {
     applyRouteToLocalState();
-    fetchByCurrentState();
+    await fetchByCurrentState();
   },
   { immediate: true },
 );
 
-watch(category, () => {
+watch(categoryId, () => {
   if (isSyncingFromRoute.value) return;
-  updateRoute({ category: category.value, page: 1 });
+  updateRoute({ categoryId: categoryId.value, page: 1 });
 });
 
 watch(q, () => {
@@ -168,14 +148,8 @@ watch(q, () => {
   queueSearchUpdate();
 });
 
-onMounted(() => {
-  applyRouteToLocalState();
-});
-
 onBeforeUnmount(() => {
-  if (searchDebounceId) {
-    clearTimeout(searchDebounceId);
-  }
+  if (searchDebounceId) clearTimeout(searchDebounceId);
 });
 </script>
 
@@ -183,13 +157,14 @@ onBeforeUnmount(() => {
   <div>
     <ProductsFilters
       v-model:q="q"
-      v-model:category="category"
+      v-model:categoryId="categoryId"
       :categories="store.categories"
       @reset="resetFilters"
     />
 
     <div class="w-full flex justify-center items-center h-full mt-6">
       <Spinner v-if="store.loading" class="size-12" />
+
       <div
         v-else-if="store.error"
         class="w-full rounded-2xl border bg-white p-6 text-sm text-red-600"
@@ -210,18 +185,26 @@ onBeforeUnmount(() => {
             позже.
           </p>
         </div>
+
         <div v-else>
           <div class="mb-3 text-sm text-slate-600">
-            Найдено:
-            <span class="font-semibold text-slate-900">{{ store.total }}</span>
+            Всего найдено:
+            <span class="font-semibold text-slate-900">{{
+              store.items.length
+            }}</span>
           </div>
 
           <div
             class="grid w-full grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
           >
-            <template v-if="store.items.length">
-              <ProductCard v-for="p in store.items" :key="p.id" :product="p" />
+            <template v-if="paginatedItems.length">
+              <ProductCard
+                v-for="p in paginatedItems"
+                :key="p.id"
+                :product="p"
+              />
             </template>
+
             <div
               v-else-if="isNoResults"
               class="w-full rounded-2xl border bg-white p-6 text-sm text-slate-600 sm:col-span-2 lg:col-span-3"
@@ -230,38 +213,27 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div
-            v-if="totalPages > 1"
-            class="mt-8 flex flex-wrap items-center justify-center gap-2"
-          >
+          <div class="mt-8 flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               class="h-9 rounded-md border bg-white px-3 text-sm transition hover:bg-slate-50 disabled:opacity-50"
-              :disabled="page === 1"
+              :disabled="!canPrev"
               @click="prevPage"
             >
               Назад
             </button>
 
-            <button
-              v-for="p in totalPages"
-              :key="p"
-              type="button"
-              class="h-9 min-w-9 rounded-md border px-3 text-sm transition"
-              :class="
-                p === page
-                  ? 'bg-slate-900 text-white border-slate-900'
-                  : 'bg-white hover:bg-slate-50'
-              "
-              @click="goToPage(p)"
-            >
-              {{ p }}
-            </button>
+            <div class="px-2 text-sm text-slate-600">
+              Страница
+              <span class="font-semibold text-slate-900">{{ page }}</span>
+              из
+              <span class="font-semibold text-slate-900">{{ totalPages }}</span>
+            </div>
 
             <button
               type="button"
               class="h-9 rounded-md border bg-white px-3 text-sm transition hover:bg-slate-50 disabled:opacity-50"
-              :disabled="page === totalPages"
+              :disabled="!canNext"
               @click="nextPage"
             >
               Вперёд
